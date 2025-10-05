@@ -1,10 +1,10 @@
-import { Component, signal, inject, OnInit } from '@angular/core';
+import { Component, signal, inject, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ApiService } from '../../lib/api/api.service';
-import { components } from '../../lib/api/types';
-
-type Pet = components['schemas']['Pet'];
+import { Subject, takeUntil } from 'rxjs';
+import { PetsService } from '../../lib/modules/openapi/api/pets.service';
+import { Pet } from '../../lib/modules/openapi/model/pet';
+import { CreatePetDto } from '../../lib/modules/openapi/model/create-pet-dto';
 
 @Component({
   selector: 'app-pet-list',
@@ -13,14 +13,15 @@ type Pet = components['schemas']['Pet'];
   templateUrl: './pet-list.component.html',
   styleUrls: ['./pet-list.component.scss'],
 })
-export class PetListComponent implements OnInit {
-  private apiService = inject(ApiService);
+export class PetListComponent implements OnInit, OnDestroy {
+  private petsService = inject(PetsService);
+  private destroy$ = new Subject<void>();
 
   pets = signal<Pet[]>([]);
   loading = signal(false);
   error = signal<string | null>(null);
   editingPet = signal<Pet | null>(null);
-  newPet = signal({
+  newPet = signal<CreatePetDto>({
     name: '',
     species: '',
     age: 0,
@@ -31,36 +32,51 @@ export class PetListComponent implements OnInit {
     this.loadPets();
   }
 
-  async loadPets(): Promise<void> {
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+
+  loadPets(): void {
     this.loading.set(true);
     this.error.set(null);
 
-    try {
-      const result = await this.apiService.getPets();
-      this.pets.set(result);
-    } catch (err) {
-      this.error.set(err instanceof Error ? err.message : 'Failed to load pets');
-    } finally {
-      this.loading.set(false);
-    }
+    this.petsService.petsControllerFindAll()
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (pets) => {
+          this.pets.set(pets);
+          this.loading.set(false);
+        },
+        error: (err) => {
+          this.error.set(err?.message || 'Failed to load pets');
+          this.loading.set(false);
+        }
+      });
   }
 
-  async onSubmit(): Promise<void> {
+  onSubmit(): void {
     const petData = this.newPet();
     const editing = this.editingPet();
+    this.loading.set(true);
+    this.error.set(null);
 
-    try {
-      if (editing) {
-        await this.apiService.updatePet(editing.id, petData);
-      } else {
-        await this.apiService.createPet(petData);
-      }
+    const operation = editing 
+      ? this.petsService.petsControllerUpdate(editing.id, petData)
+      : this.petsService.petsControllerCreate(petData);
 
-      this.resetForm();
-      await this.loadPets();
-    } catch (err) {
-      this.error.set(err instanceof Error ? err.message : 'Failed to save pet');
-    }
+    operation
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: () => {
+          this.resetForm();
+          this.loadPets();
+        },
+        error: (err) => {
+          this.error.set(err?.message || 'Failed to save pet');
+          this.loading.set(false);
+        }
+      });
   }
 
   startEdit(pet: Pet): void {
@@ -77,17 +93,25 @@ export class PetListComponent implements OnInit {
     this.resetForm();
   }
 
-  async deletePet(petId: number): Promise<void> {
+  deletePet(petId: number): void {
     if (!confirm('Are you sure you want to delete this pet?')) {
       return;
     }
 
-    try {
-      await this.apiService.deletePet(petId);
-      await this.loadPets();
-    } catch (err) {
-      this.error.set(err instanceof Error ? err.message : 'Failed to delete pet');
-    }
+    this.loading.set(true);
+    this.error.set(null);
+
+    this.petsService.petsControllerRemove(petId)
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: () => {
+          this.loadPets();
+        },
+        error: (err) => {
+          this.error.set(err?.message || 'Failed to delete pet');
+          this.loading.set(false);
+        }
+      });
   }
 
   private resetForm(): void {

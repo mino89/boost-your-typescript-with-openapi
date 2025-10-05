@@ -7,7 +7,7 @@
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test",
-    "generate:types": "openapi-typescript ../shared/openapi.json --output src/lib/api/types.ts"
+    "generate:types": "openapi-generator-cli generate -i ../shared/openapi.json -g typescript-angular -o src/lib/modules/openapi --additional-properties fileNaming=kebab-case,withInterfaces=true --generate-alias-as-model"
   },
   "prettier": {
     "printWidth": 100,
@@ -29,6 +29,7 @@
     "@angular/forms": "^20.3.0",
     "@angular/platform-browser": "^20.3.0",
     "@angular/router": "^20.3.0",
+    "@openapitools/openapi-generator-cli": "^2.24.0",
     "openapi-fetch": "^0.14.1",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",
